@@ -1,0 +1,32 @@
+{
+  "name": "minecraft-source-mcp",
+  "version": "1.0.0",
+  "description": "MCP server that serves Minecraft / Forge / mod sources (decompiling jars when no sources are available) to AI assistants for mod development.",
+  "type": "module",
+  "bin": {
+    "minecraft-source-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "stdio": "node dist/index.js --stdio",
+    "http": "node dist/index.js --http",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "adm-zip": "^0.5.16",
+    "commander": "^14.0.0",
+    "express": "^5.1.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

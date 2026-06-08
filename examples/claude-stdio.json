@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "minecraft-source": {
+      "command": "node",
+      "args": [
+        "F:/MyProjects/minecraft-source-find/dist/index.js",
+        "--stdio",
+        "--gradle-home",
+        "D:/GradleHome"
+      ]
+    }
+  }
+}

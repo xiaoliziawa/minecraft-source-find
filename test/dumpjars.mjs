@@ -1,0 +1,10 @@
+import { resolveConfig } from "../dist/config.js";
+import { SourceService } from "../dist/service/sourceService.js";
+import fs from "node:fs";
+const cfg = resolveConfig({ projectDir: "F:/MyProjects/AE2 Pattern Find", resolveMode: "scan" });
+const svc = new SourceService(cfg);
+const jars = await svc.listSources();
+const lines = ["CMD=refs","THREADS=8","TKIND=class","TOWNER=net/minecraft/world/item/ItemStack","PKG=appeng"];
+for (const j of jars) lines.push("JAR="+j.jarPath);
+fs.writeFileSync("F:/MyProjects/minecraft-source-find/.cache/opts.txt", lines.join("\n"));
+console.log("jars:", jars.length);

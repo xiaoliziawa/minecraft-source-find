@@ -1,0 +1,9 @@
+{
+  "//": "先手动启动服务: node dist/index.js --http --port 4799 --project \"F:/MyProjects/你的模组项目\"",
+  "mcpServers": {
+    "minecraft-source": {
+      "type": "http",
+      "url": "http://127.0.0.1:4799/mcp"
+    }
+  }
+}

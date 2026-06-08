@@ -1,0 +1,13 @@
+import { resolveConfig } from "../dist/config.js";
+import { SourceService } from "../dist/service/sourceService.js";
+const cfg = resolveConfig({ projectDir: "F:/MyProjects/AE2 Pattern Find", resolveMode: "scan" });
+const svc = new SourceService(cfg);
+await svc.ensureIndex();
+const t0 = performance.now();
+const r = await svc.getClassSource("appeng.api.stacks.AEItemKey");
+console.log(`decompiled=${r.decompiled} chars=${r.source.length} time=${(performance.now()-t0).toFixed(0)}ms from ${r.artifact}`);
+console.log("--- first 25 lines ---");
+console.log(r.source.split("\n").slice(0, 25).join("\n"));
+const t1 = performance.now();
+const r2 = await svc.getClassSource("appeng.api.stacks.AEItemKey");
+console.log(`\n2nd call (cache) time=${(performance.now()-t1).toFixed(0)}ms`);
