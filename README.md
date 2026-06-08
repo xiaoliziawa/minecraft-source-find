@@ -84,7 +84,7 @@ node dist/index.js --http --resolve gradle --project "F:/MyProjects/你的模组
 | `search_text` | 在带 source 的 jar 的 `.java` 中做全文/正则检索，返回 `类名:行号:内容` |
 | `reload_index` | 改了 build.gradle 或新增依赖后重建索引 |
 
-### 符号关系类（字节码级，远胜 grep）
+### 符号关系类
 
 基于 **ASM 解析字节码**，对**只有 class（无 source）的模组同样有效**，能跨 mapping、区分调用与声明、处理子类型分派——这是 `search_text`(grep) 做不到的。
 
