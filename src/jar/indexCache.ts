@@ -5,12 +5,12 @@ import zlib from "node:zlib";
 import { JarInfo, JarEntries } from "./jarIndex.js";
 
 interface CacheFile {
-  version: 1;
+  version: 2;
   signature: string;
   jarEntries: JarEntries[];
 }
 
-const CACHE_VERSION = 1 as const;
+const CACHE_VERSION = 2 as const;
 
 /** Signature over the in-scope jar set + project identity; changes invalidate the cache. */
 export function computeSignature(jars: JarInfo[], extra: string): string {

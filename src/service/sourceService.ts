@@ -13,7 +13,7 @@ import {
 import { computeSignature, loadIndexCache, saveIndexCache } from "../jar/indexCache.js";
 import fs from "node:fs";
 import path from "node:path";
-import { listEntries, readTextEntry } from "../jar/jarReader.js";
+import { listEntries, readTextEntry, readBinaryEntry } from "../jar/jarReader.js";
 import { decompileClass } from "../decompile/decompiler.js";
 
 /** Convert a file:// URI (or a plain path) to a local filesystem path, Windows-aware. */
@@ -66,6 +66,45 @@ export interface TextMatch {
   artifact: string;
   line: number;
   text: string;
+}
+
+export interface ResourceMatch {
+  path: string;
+  artifact: string;
+  origin: string;
+  binary: boolean;
+}
+
+export interface ResourceTextMatch {
+  path: string;
+  artifact: string;
+  line: number;
+  text: string;
+}
+
+export interface ResourceContent {
+  path: string;
+  artifact: string;
+  origin: string;
+  binary: boolean;
+  size: number;
+  content: string | null;
+}
+
+/** Extensions whose bytes are not meaningfully searchable/readable as text. */
+const BINARY_RESOURCE_EXTS = new Set([
+  "png", "nbt", "ogg", "jpg", "jpeg", "gif", "ico", "webp", "bin", "dat", "zip", "jar",
+  "class", "ttf", "otf", "wav", "mp3", "rsa", "sf", "kotlin_module",
+]);
+
+function resourceExt(p: string): string {
+  const slash = p.lastIndexOf("/");
+  const dot = p.lastIndexOf(".");
+  return dot > slash ? p.slice(dot + 1).toLowerCase() : "";
+}
+
+function isBinaryResource(p: string): boolean {
+  return BINARY_RESOURCE_EXTS.has(resourceExt(p));
 }
 
 export type RootsProvider = () => Promise<string[]>;
@@ -360,5 +399,123 @@ export class SourceService {
       }
     }
     return { matches, scannedJars, skippedBinaryJars, truncated };
+  }
+
+  private matchResource(
+    path: string,
+    ext: string | null,
+    prefix: string | null,
+    query: string | null,
+    ignoreCase: boolean,
+  ): boolean {
+    if (ext && resourceExt(path) !== ext) return false;
+    if (prefix && !path.startsWith(prefix)) return false;
+    if (query) {
+      const hay = ignoreCase ? path.toLowerCase() : path;
+      if (!hay.includes(query)) return false;
+    }
+    return true;
+  }
+
+  /** Locate resource files (json/shader/mcmeta/png/…) by extension, path prefix, or name fragment. */
+  async findResources(opts: {
+    query?: string;
+    ext?: string;
+    pathPrefix?: string;
+    ignoreCase?: boolean;
+    limit?: number;
+  }): Promise<{ matches: ResourceMatch[]; total: number; truncated: boolean }> {
+    const idx = await this.ensureIndex();
+    const limit = opts.limit ?? 100;
+    const ext = opts.ext ? opts.ext.replace(/^\./, "").toLowerCase() : null;
+    const prefix = opts.pathPrefix ? opts.pathPrefix.replace(/\\/g, "/") : null;
+    const query = opts.query ? (opts.ignoreCase ? opts.query.toLowerCase() : opts.query) : null;
+
+    const matches: ResourceMatch[] = [];
+    let total = 0;
+    for (const r of idx.resourcesByPath.values()) {
+      if (!this.matchResource(r.path, ext, prefix, query, opts.ignoreCase ?? false)) continue;
+      total++;
+      if (matches.length < limit) {
+        matches.push({
+          path: r.path,
+          artifact: r.jar.artifactName,
+          origin: r.jar.origin,
+          binary: isBinaryResource(r.path),
+        });
+      }
+    }
+    matches.sort((a, b) => a.path.localeCompare(b.path));
+    return { matches, total, truncated: total > matches.length };
+  }
+
+  /** Full-text/regex search inside text resources (json, shaders, …). Binary files are skipped. */
+  async grepResources(
+    content: string,
+    opts: {
+      ext?: string;
+      pathPrefix?: string;
+      regex?: boolean;
+      ignoreCase?: boolean;
+      limit?: number;
+      maxFiles?: number;
+    } = {},
+  ): Promise<{ matches: ResourceTextMatch[]; scannedFiles: number; truncated: boolean }> {
+    const idx = await this.ensureIndex();
+    const limit = opts.limit ?? 100;
+    const maxFiles = opts.maxFiles ?? 3000;
+    const ext = opts.ext ? opts.ext.replace(/^\./, "").toLowerCase() : null;
+    const prefix = opts.pathPrefix ? opts.pathPrefix.replace(/\\/g, "/") : null;
+    const matcher = opts.regex ? new RegExp(content, opts.ignoreCase ? "i" : "") : null;
+    const needle = opts.ignoreCase ? content.toLowerCase() : content;
+
+    const matches: ResourceTextMatch[] = [];
+    let scannedFiles = 0;
+    let truncated = false;
+    outer: for (const r of idx.resourcesByPath.values()) {
+      if (isBinaryResource(r.path)) continue;
+      if (!this.matchResource(r.path, ext, prefix, null, false)) continue;
+      if (scannedFiles >= maxFiles) {
+        truncated = true;
+        break;
+      }
+      scannedFiles++;
+      const text = readTextEntry(r.jar.jarPath, r.path);
+      if (text === null) continue;
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        const hay = opts.ignoreCase ? lines[i].toLowerCase() : lines[i];
+        const hit = matcher ? matcher.test(lines[i]) : hay.includes(needle);
+        if (hit) {
+          matches.push({
+            path: r.path,
+            artifact: r.jar.artifactName,
+            line: i + 1,
+            text: lines[i].trim().slice(0, 240),
+          });
+          if (matches.length >= limit) {
+            truncated = true;
+            break outer;
+          }
+        }
+      }
+    }
+    return { matches, scannedFiles, truncated };
+  }
+
+  /** Read a single resource by its exact jar-internal path; binary files return size only. */
+  async getResource(resPath: string): Promise<ResourceContent> {
+    const idx = await this.ensureIndex();
+    const norm = resPath.replace(/\\/g, "/");
+    const r = idx.resourcesByPath.get(norm);
+    if (!r) throw new Error(`未找到资源: ${resPath}（先用 search_resources 确认完整路径）`);
+    const base = { path: r.path, artifact: r.jar.artifactName, origin: r.jar.origin };
+    if (isBinaryResource(r.path)) {
+      const buf = readBinaryEntry(r.jar.jarPath, r.path);
+      return { ...base, binary: true, size: buf?.length ?? 0, content: null };
+    }
+    const text = readTextEntry(r.jar.jarPath, r.path);
+    if (text === null) throw new Error(`资源读取失败: ${resPath}`);
+    return { ...base, binary: false, size: Buffer.byteLength(text, "utf8"), content: text };
   }
 }

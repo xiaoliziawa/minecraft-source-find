@@ -1,0 +1,21 @@
+[package]
+name = "mcp-analyzer"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "mcp-analyzer"
+path = "src/main.rs"
+
+[dependencies]
+# Native zlib (built via cc) for raw-deflate decompression; the jar central directory is parsed by a
+# lean in-house reader (src/jar.rs) rather than the zip crate, to skip the ~20k non-class entries.
+flate2 = { version = "1", default-features = false, features = ["zlib"] }
+rayon = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

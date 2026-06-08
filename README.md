@@ -37,10 +37,10 @@
 
 ```bash
 npm install
-npm run build
+npm run build   # 编译 TypeScript，并 cargo build 字节码分析器（需 Rust 工具链）
 ```
 
-`vendor/vineflower.jar` 已随仓库提供；如缺失会在启动时给出警告，可用 `--vineflower` 指定路径。
+`npm run build` 会顺带编译 `analyzer/`（Rust 字节码分析器）。若构建时未装 Rust，分析器会在首次用到 `find_references` 等工具时自动 `cargo build`。`vendor/vineflower.jar` 已随仓库提供，缺失时启动告警，可用 `--vineflower` 指定。
 
 ## 运行
 
@@ -84,9 +84,18 @@ node dist/index.js --http --resolve gradle --project "F:/MyProjects/你的模组
 | `search_text` | 在带 source 的 jar 的 `.java` 中做全文/正则检索，返回 `类名:行号:内容` |
 | `reload_index` | 改了 build.gradle 或新增依赖后重建索引 |
 
+### 资源类
+
+非源码资源：模型/方块状态/配方等 `.json`、shader 的 `.fsh`/`.vsh`/`.glsl`、`.mcmeta`、纹理 `.png` 等。
+
+| 工具 | 作用 |
+|---|---|
+| `search_resources` | 按 `ext`/`pathPrefix`/`query` 定位资源文件；带 `content` 时在文本资源里做全文/正则检索（png/nbt 等二进制只定位不搜内容） |
+| `get_resource` | 按 jar 内完整路径取资源文本（json/shader 等）；二进制只返回大小 |
+
 ### 符号关系类
 
-基于 **ASM 解析字节码**，对**只有 class（无 source）的模组同样有效**，能跨 mapping、区分调用与声明、处理子类型分派——这是 `search_text`(grep) 做不到的。
+基于 **Rust 字节码分析器**（`analyzer/`，自带精简 zip 读取器，多核并行解析），对**只有 class（无 source）的模组同样有效**，能跨 mapping、区分调用与声明、处理子类型分派——这是 `search_text`(grep) 做不到的。
 
 | 工具 | 作用 |
 |---|---|
@@ -137,13 +146,12 @@ claude mcp remove minecraft-source -s user
 
 - 反编译结果：`./.cache/decompiled/`（按 jar+mtime+类名 缓存）
 - 类索引：`./.cache/index-cache.json.gz`（按作用域 jar 集签名失效，热启动 ~1s）
-- 字节码分析器：首次用到时把 `tools/McpAnalyzer.java` 编译到 `./.cache/analyzer/`（用到 `vendor/asm-9.7.jar`）
+- 字节码分析器：`analyzer/target/release/` 下的 Rust 二进制，缺失时自动 `cargo build`（仅首次）
 - 类大纲/继承索引：`./.cache/outline-*.json.gz`（供 `find_implementations`/`find_overrides`/`class_outline` 用，首次构建约数秒，之后缓存）
 
 删除 `.cache` 即可强制重建。
 
 ## 依赖的外部组件
 
-- `vendor/vineflower.jar` — 反编译器（无 source 时用）
-- `vendor/asm-9.7.jar` — 字节码分析（`find_references` 等）
-- 本机 `java` / `javac`（Java 17+；本项目用 Java 21 验证）
+- `vendor/vineflower.jar` — 反编译器（无 source 时用）；需本机 `java`（Java 17+）
+- `analyzer/` — Rust 字节码分析器（`find_references` 等），需 Rust 工具链（`cargo`）构建

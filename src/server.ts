@@ -25,6 +25,7 @@ export function buildServer(cfg: ServerConfig): McpServer {
       instructions:
         "查询当前 Minecraft 模组项目作用域内的源码与符号关系：Minecraft / 加载器 / 各依赖模组。\n" +
         "源码：search_class 找全限定名 → get_class_source 取源码（无 sources 自动 Vineflower 反编译）；search_text 做源码全文检索。\n" +
+        "资源（模型/方块状态/配方 json、shader 的 fsh/vsh/glsl、mcmeta、纹理 png 等）：search_resources 按路径/扩展名/内容找 → get_resource 取文本内容。\n" +
         "符号关系（字节码级，远胜 grep）：find_references 查类/方法/字段被引用处，find_implementations 查子类/实现类，find_overrides 查方法覆盖，class_outline 看成员签名。\n" +
         "注意 mapping：MC 核心用 official 名，模组 jar 调用 MC 时常用 SRG 名（如 m_41619_）。查方法/字段引用前可先用 class_outline 看字节码里的真实成员名。",
     },
@@ -151,6 +152,82 @@ export function buildServer(cfg: ServerConfig): McpServer {
         `命中 ${r.matches.length} 条（扫描 ${r.scannedJars} 个源码 jar，跳过 ${r.skippedBinaryJars} 个仅 class 的 jar）` +
         (r.truncated ? "，结果已截断" : "");
       return text([header, ...lines].join("\n"));
+    },
+  );
+
+  server.registerTool(
+    "search_resources",
+    {
+      title: "搜索资源文件（json/shader/模型等）",
+      description:
+        "在作用域内 jar 的非源码资源里搜索：模型/方块状态/配方等 .json、shader 的 .fsh/.vsh/.glsl、.mcmeta、纹理 .png 等。" +
+        "不带 content 时按 ext/pathPrefix/query 定位文件路径（取资源前的第一步）；带 content 时在匹配到的【文本】资源里做全文/正则检索，返回 路径:行号:内容（png/nbt 等二进制不参与内容检索）。",
+      inputSchema: {
+        query: z.string().optional().describe("文件名或路径片段，如 rendertype_entity 或 models/item"),
+        ext: z.string().optional().describe("扩展名过滤，如 fsh、vsh、json、mcmeta"),
+        pathPrefix: z
+          .string()
+          .optional()
+          .describe("jar 内路径前缀，如 assets/minecraft/shaders，缩小范围加速"),
+        content: z.string().optional().describe("在文本资源内检索的关键词或正则；不填则只按路径定位"),
+        regex: z.boolean().optional().describe("content 是否按正则匹配，默认否"),
+        ignoreCase: z.boolean().optional().describe("是否忽略大小写，默认否"),
+        limit: z.number().int().min(1).max(500).optional().describe("最多返回多少条，默认 100"),
+      },
+    },
+    async ({ query, ext, pathPrefix, content, regex, ignoreCase, limit }) => {
+      if (content) {
+        const r = await service.grepResources(content, { ext, pathPrefix, regex, ignoreCase, limit });
+        const lines = r.matches.map((m) => `${m.path}:${m.line}  ${m.text}`);
+        const header =
+          `命中 ${r.matches.length} 条（扫描 ${r.scannedFiles} 个文本资源）` +
+          (r.truncated ? "，结果已截断，建议用 ext/pathPrefix 收窄" : "");
+        return text([header, ...lines].join("\n"));
+      }
+      const r = await service.findResources({ query, ext, pathPrefix, ignoreCase, limit });
+      if (r.matches.length === 0) return text("未找到匹配的资源文件。");
+      const lines = r.matches.map((m) => `${m.path}${m.binary ? "  <二进制>" : ""}  (${m.origin}/${m.artifact})`);
+      const header = `匹配 ${r.total} 个资源` + (r.truncated ? `，显示前 ${r.matches.length}` : "") + "：";
+      return text([header, ...lines].join("\n"));
+    },
+  );
+
+  server.registerTool(
+    "get_resource",
+    {
+      title: "读取资源文件内容",
+      description:
+        "按 jar 内完整路径返回资源文件的文本内容（json 模型、shader 源码、mcmeta 等）。路径用 search_resources 先确认。二进制文件（png/nbt 等）只返回大小，不返回内容。",
+      inputSchema: {
+        path: z.string().min(1).describe("jar 内完整路径，如 assets/minecraft/shaders/core/rendertype_entity_solid.fsh"),
+        maxChars: z
+          .number()
+          .int()
+          .min(1000)
+          .max(400000)
+          .optional()
+          .describe(`最大返回字符数，默认 ${MAX_SOURCE_CHARS}，超出会截断`),
+      },
+    },
+    async ({ path, maxChars }) => {
+      const r = await service.getResource(path);
+      if (r.binary) {
+        return text(`// 资源: ${r.path}  来源: ${r.origin}/${r.artifact}\n// [二进制文件，大小 ${r.size} 字节，不可作为文本读取]`);
+      }
+      const cap = maxChars ?? MAX_SOURCE_CHARS;
+      let body = r.content ?? "";
+      let truncated = false;
+      if (body.length > cap) {
+        body = body.slice(0, cap);
+        truncated = true;
+      }
+      const head = [
+        `// 资源: ${r.path}  来源: ${r.origin}/${r.artifact}`,
+        truncated ? `// [已截断到 ${cap} 字符，可用 maxChars 调大]` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      return text(`${head}\n\n${body}`);
     },
   );
 

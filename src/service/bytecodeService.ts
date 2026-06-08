@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import zlib from "node:zlib";
 import { spawn, spawnSync } from "node:child_process";
 import { ServerConfig } from "../config.js";
@@ -54,25 +53,21 @@ export class BytecodeService {
 
   constructor(private cfg: ServerConfig, private source: SourceService) {}
 
-  private analyzerDir(): string {
-    return path.join(this.cfg.cacheDir, "analyzer");
+  private analyzerCrateDir(): string {
+    return path.join(packageRoot, "analyzer");
   }
-  private asmJar(): string {
-    return path.join(packageRoot, "vendor", "asm-9.7.jar");
-  }
-  private classpath(): string {
-    return [this.asmJar(), this.analyzerDir()].join(path.delimiter);
+  private analyzerBin(): string {
+    const exe = process.platform === "win32" ? "mcp-analyzer.exe" : "mcp-analyzer";
+    return path.join(this.analyzerCrateDir(), "target", "release", exe);
   }
 
-  private ensureCompiled(): void {
-    const out = path.join(this.analyzerDir(), "McpAnalyzer.class");
-    if (fs.existsSync(out)) return;
-    const src = path.join(packageRoot, "tools", "McpAnalyzer.java");
-    if (!fs.existsSync(this.asmJar())) throw new Error(`缺少 ASM: ${this.asmJar()}`);
-    if (!fs.existsSync(src)) throw new Error(`缺少分析器源码: ${src}`);
-    fs.mkdirSync(this.analyzerDir(), { recursive: true });
-    const r = spawnSync("javac", ["-cp", this.asmJar(), "-d", this.analyzerDir(), src], { encoding: "utf8" });
-    if (r.status !== 0) throw new Error(`编译 McpAnalyzer 失败: ${(r.stderr || r.stdout || "").slice(0, 500)}`);
+  /** Build the Rust analyzer on first use (cargo fetches crates once); no-op once the binary exists. */
+  private ensureBuilt(): void {
+    if (fs.existsSync(this.analyzerBin())) return;
+    const crate = this.analyzerCrateDir();
+    if (!fs.existsSync(path.join(crate, "Cargo.toml"))) throw new Error(`缺少 Rust 分析器项目: ${crate}`);
+    const r = spawnSync("cargo", ["build", "--release"], { cwd: crate, encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`编译 mcp-analyzer 失败: ${(r.stderr || r.stdout || "").slice(0, 800)}`);
   }
 
   private async jarPaths(): Promise<string[]> {
@@ -111,10 +106,10 @@ export class BytecodeService {
   }
 
   private runAnalyzer(optionLines: string[], timeoutMs = 180000): Promise<string> {
-    this.ensureCompiled();
+    this.ensureBuilt();
     const optFile = this.writeOptions(optionLines);
     return new Promise((resolve, reject) => {
-      const child = spawn("java", ["-cp", this.classpath(), "McpAnalyzer", optFile], {
+      const child = spawn(this.analyzerBin(), [optFile], {
         stdio: ["ignore", "pipe", "pipe"],
       });
       let stdout = "";

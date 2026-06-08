@@ -27,6 +27,13 @@ export interface ClassEntry {
   jar: JarInfo;
 }
 
+/** A non-source/non-class file inside a jar (json model, shader, mcmeta, texture, …). */
+export interface ResourceEntry {
+  /** Forward-slash path inside the jar. */
+  path: string;
+  jar: JarInfo;
+}
+
 export interface ClassIndex {
   /** fqcn -> best ClassEntry. */
   byFqcn: Map<string, ClassEntry>;
@@ -35,6 +42,8 @@ export interface ClassIndex {
   jars: JarInfo[];
   /** fqcn -> all entries (for showing alternatives). */
   allByFqcn: Map<string, ClassEntry[]>;
+  /** jar-internal path -> best ResourceEntry (deduplicated across duplicate jars). */
+  resourcesByPath: Map<string, ResourceEntry>;
 }
 
 const MC_TOKEN_RE = /1\.\d{1,2}(?:\.\d{1,2}){0,2}/g;
@@ -315,6 +324,8 @@ export interface JarEntries {
   jar: JarInfo;
   /** Top-level .java/.class entry paths (inner classes excluded; they are read on demand). */
   entries: string[];
+  /** Every other file path (json/shader/mcmeta/png/…), for the resource index. */
+  resources: string[];
 }
 
 /** Read the (expensive) zip central directories once; result is cacheable to disk. */
@@ -325,14 +336,16 @@ export function collectJarEntries(jars: JarInfo[]): JarEntries[] {
     try {
       entries = listEntries(jar.jarPath);
     } catch {
-      out.push({ jar, entries: [] });
+      out.push({ jar, entries: [], resources: [] });
       continue;
     }
-    const filtered: string[] = [];
+    const classes: string[] = [];
+    const resources: string[] = [];
     for (const e of entries) {
-      if (e.path.endsWith(".java") || e.path.endsWith(".class")) filtered.push(e.path);
+      if (e.path.endsWith(".java") || e.path.endsWith(".class")) classes.push(e.path);
+      else resources.push(e.path);
     }
-    out.push({ jar, entries: filtered });
+    out.push({ jar, entries: classes, resources });
   }
   return out;
 }
@@ -345,11 +358,20 @@ export function buildClassIndex(jarEntries: JarEntries[], project: ProjectInfo):
   const bestScore = new Map<string, number>();
   const allByFqcn = new Map<string, ClassEntry[]>();
   const bySimpleName = new Map<string, string[]>();
+  const resourcesByPath = new Map<string, ResourceEntry>();
+  const resBestScore = new Map<string, number>();
   const jars: JarInfo[] = [];
 
-  for (const { jar, entries } of jarEntries) {
+  for (const { jar, entries, resources } of jarEntries) {
     jars.push(jar);
     const score = entryScore(jar, project, coordVersions);
+    for (const rpath of resources) {
+      const prev = resBestScore.get(rpath);
+      if (prev === undefined || score > prev) {
+        resBestScore.set(rpath, score);
+        resourcesByPath.set(rpath, { path: rpath, jar });
+      }
+    }
     for (const entryPath of entries) {
       const parsed = fqcnFromEntry(entryPath);
       if (!parsed) continue;
@@ -376,5 +398,5 @@ export function buildClassIndex(jarEntries: JarEntries[], project: ProjectInfo):
     }
   }
 
-  return { byFqcn, bySimpleName, jars, allByFqcn };
+  return { byFqcn, bySimpleName, jars, allByFqcn, resourcesByPath };
 }

@@ -7,7 +7,8 @@
     "minecraft-source-mcp": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run build:analyzer",
+    "build:analyzer": "cargo build --release --manifest-path analyzer/Cargo.toml",
     "start": "node dist/index.js",
     "stdio": "node dist/index.js --stdio",
     "http": "node dist/index.js --http",
