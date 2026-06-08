@@ -28,6 +28,9 @@ export interface ProjectInfo {
 
 const MC_VERSION_RE = /^(1\.\d{1,2}(?:\.\d{1,2}){0,2})$/;
 const MC_TOKEN_RE = /1\.\d{1,2}(?:\.\d{1,2}){0,2}/;
+/** Generic dotted version token (2-4 segments), not anchored to a leading "1." — the new Mojang/NeoForge
+ *  scheme since MC 1.21.11 numbers Minecraft like "26.1.2" rather than "1.x". */
+const VERSION_TOKEN_RE = /\d{1,4}(?:\.\d{1,4}){1,3}/;
 
 function readIfExists(file: string): string | null {
   try {
@@ -94,12 +97,14 @@ function extractCoordinates(text: string, props: Record<string, string>): Coordi
 }
 
 function deriveMcVersion(props: Record<string, string>, scriptText: string, coords: Coordinate[]): string | null {
-  // 1) From a property whose key clearly names the MC version.
+  // 1) From a property whose key clearly names the MC version. Skip version *ranges* and parchment's
+  //    marketing version (e.g. parchment_minecraft_version=1.21.11), which differ from the jar-path token.
   for (const [key, rawVal] of Object.entries(props)) {
     const k = key.toLowerCase();
+    if (k.includes("range") || k.includes("parchment")) continue;
     if (k === "minecraft" || k === "mc_version" || k === "mcversion" || /minecraft.*version|mc.*version/.test(k)) {
       const v = interpolate(rawVal, props);
-      const mm = v.match(MC_TOKEN_RE);
+      const mm = v.match(VERSION_TOKEN_RE);
       if (mm) return mm[0];
     }
   }

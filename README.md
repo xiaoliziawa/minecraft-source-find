@@ -20,9 +20,9 @@
 | NeoForge / Fabric (loom) | `caches/fabric-loom/...` |
 | **ModDevGradle**（新版 NeoForge/Forge）的 MC+加载器合并 jar | `<项目>/build/moddev/artifacts/minecraft-patched-*.jar` 与 `-sources.jar` |
 
-> **ModDevGradle (MDG)**：新版 `net.neoforged.moddev` 插件把「打补丁后的 Minecraft+加载器」源码与字节码生成在**项目本地** `build/moddev/artifacts/` 下，而非 GradleHome 缓存。本工具会一并扫描该目录并视为权威来源（不做版本筛选）；其中 `-sources.jar` 供读源码、`*.jar` 供字节码分析，`-merged.jar`（class+java 混装）自动跳过以免重复计数。
+> **ModDevGradle**：新版 `net.neoforged.moddev` 把 MC+加载器的源码和字节码生成在项目本地 `build/moddev/artifacts/`，不进 GradleHome。本工具会扫描这里：`-sources.jar` 读源码、`*.jar` 做字节码分析，`-merged.jar` 跳过。
 >
-> **新版无混淆**：自 MC 1.21.11（NeoForge 26.x）起 Mojang 取消混淆，类/方法/字段均为 official 名，SRG↔official 割裂随之消失，引用分析更直接可靠。这类版本的字节码可能编译到很新的 Java（如 Java 25），分析器已做 class 版本兼容处理，**无需升级 ASM 即可解析任意 Java 版本的 class**。
+> **新版无混淆**：MC 1.21.11（NeoForge 26.x）起取消混淆，全是 official 名，不再有 SRG↔official 之分。版本号也改成 `26.1.2` 这种写法（不再以 `1.` 开头），解析已兼容。字节码可能用 Java 25 编译，分析器会自动处理，不必升级 ASM。
 
 ## 两种作用域解析方式
 

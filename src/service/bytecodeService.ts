@@ -49,6 +49,8 @@ function toFqcn(internal: string): string {
 
 export class BytecodeService {
   private outline: OutlineDb | null = null;
+  private outlineSig: string | null = null;
+  private jarPathsCache: { sig: string; paths: string[] } | null = null;
 
   constructor(private cfg: ServerConfig, private source: SourceService) {}
 
@@ -75,6 +77,8 @@ export class BytecodeService {
 
   private async jarPaths(): Promise<string[]> {
     const idx = await this.source.getIndex();
+    const sig = computeSignature(idx.jars, "jarpaths|" + this.cfg.resolveMode);
+    if (this.jarPathsCache && this.jarPathsCache.sig === sig) return this.jarPathsCache.paths;
     const project = this.source.getProject();
     const loaderVer = project.loaderVersion ?? "";
     const wantMap = project.mappings;
@@ -95,7 +99,9 @@ export class BytecodeService {
       }
       if (best) chosen.add(best.jar.jarPath);
     }
-    return [...chosen];
+    const paths = [...chosen];
+    this.jarPathsCache = { sig, paths };
+    return paths;
   }
 
   private writeOptions(lines: string[]): string {
@@ -140,10 +146,9 @@ export class BytecodeService {
   }
 
   async ensureOutline(): Promise<OutlineDb> {
-    if (this.outline) return this.outline;
-    const jars = await this.jarPaths();
     const idx = await this.source.getIndex();
     const sig = computeSignature(idx.jars, "outline|" + this.cfg.resolveMode);
+    if (this.outline && this.outlineSig === sig) return this.outline;
     const cacheFile = this.outlineCacheFile(sig);
 
     let raw: OutlineClass[] | null = null;
@@ -155,6 +160,7 @@ export class BytecodeService {
       }
     }
     if (!raw) {
+      const jars = await this.jarPaths();
       const text = await this.runAnalyzer(["CMD=outline", "THREADS=8", ...jars.map((j) => "JAR=" + j)]);
       raw = parseOutline(text);
       try {
@@ -176,6 +182,7 @@ export class BytecodeService {
       }
     }
     this.outline = { byInternal, children };
+    this.outlineSig = sig;
     return this.outline;
   }
 

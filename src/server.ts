@@ -5,7 +5,7 @@ import { SourceService } from "./service/sourceService.js";
 import { BytecodeService, TargetKind } from "./service/bytecodeService.js";
 import { JarInfo } from "./jar/jarIndex.js";
 
-const MAX_SOURCE_CHARS = 80000;
+const MAX_SOURCE_CHARS = 40000;
 
 function text(obj: unknown): { content: { type: "text"; text: string }[] } {
   const body = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
@@ -84,7 +84,10 @@ export function buildServer(cfg: ServerConfig): McpServer {
     async ({ query, limit }) => {
       const results = await service.searchClass(query, limit ?? 50);
       if (results.length === 0) return text(`未找到匹配 "${query}" 的类。`);
-      return text(results);
+      const lines = results.map(
+        (r) => `${r.fqcn}  <${r.hasSource ? "源码" : "需反编译"}> (${r.origin}/${r.artifact})`,
+      );
+      return text([`匹配 ${results.length} 个类：`, ...lines].join("\n"));
     },
   );
 
