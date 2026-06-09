@@ -97,9 +97,22 @@ export function buildServer(cfg: ServerConfig): McpServer {
     {
       title: "获取类源码",
       description:
-        "按全限定名返回类的 Java 源码。带 sources 的直接读取；只有 class 的用 Vineflower 反编译（结果缓存）。返回里 decompiled=true 表示是反编译产物。",
+        "按全限定名返回类的 Java 源码。带 sources 的直接读取；只有 class 的用 Vineflower 反编译（结果缓存）。返回里 decompiled=true 表示是反编译产物。\n" +
+        "长文件按字符上限截断会丢失关键片段：用 startLine/endLine 只取指定行号区间（输出带行号前缀，便于后续精确引用）。可先用 search_text/class_outline 定位行号再来精读这一段。",
       inputSchema: {
         fqcn: z.string().min(1).describe("完整全限定类名，如 net.minecraft.world.item.ItemStack"),
+        startLine: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("起始行号（1 起，含）。给了行号区间只返回该段，避免长文件被截断"),
+        endLine: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("结束行号（含）。只给 startLine 时返回到文件末尾（仍受 maxChars 上限保护）"),
         maxChars: z
           .number()
           .int()
@@ -109,21 +122,53 @@ export function buildServer(cfg: ServerConfig): McpServer {
           .describe(`最大返回字符数，默认 ${MAX_SOURCE_CHARS}，超出会截断`),
       },
     },
-    async ({ fqcn, maxChars }) => {
+    async ({ fqcn, startLine, endLine, maxChars }) => {
       const result = await service.getClassSource(fqcn);
       const cap = maxChars ?? MAX_SOURCE_CHARS;
+      const allLines = result.source.split(/\r?\n/);
+      const total = allLines.length;
+      const meta = [
+        `// 构件: ${result.artifact}  来源: ${result.origin}  ${result.decompiled ? "(Vineflower 反编译)" : "(原始 sources)"}`,
+        `// 共 ${total} 行`,
+        result.alternatives.length
+          ? `// 另有 ${result.alternatives.length} 个同名类来源，必要时可换 jar 查看`
+          : null,
+      ].filter(Boolean) as string[];
+
+      if (startLine !== undefined || endLine !== undefined) {
+        const from = Math.max(1, startLine ?? 1);
+        if (from > total) {
+          return text([...meta, `// [startLine=${from} 超出总行数 ${total}]`].join("\n"));
+        }
+        const to = Math.min(total, endLine ?? total);
+        const slice = allLines.slice(from - 1, to);
+        const width = String(to).length;
+        let body = slice.map((l, i) => `${String(from + i).padStart(width)} | ${l}`).join("\n");
+        let truncated = false;
+        if (body.length > cap) {
+          body = body.slice(0, cap);
+          truncated = true;
+        }
+        const head = [
+          ...meta,
+          `// 显示第 ${from}-${to} 行` +
+            (truncated ? `（区间过大，已截断到 ${cap} 字符，请缩小区间）` : ""),
+        ].join("\n");
+        return text(`${head}\n\n${body}`);
+      }
+
       let source = result.source;
       let truncated = false;
       if (source.length > cap) {
         source = source.slice(0, cap);
         truncated = true;
       }
+      const shownLines = truncated ? source.split(/\r?\n/).length : total;
       const head = [
-        `// 构件: ${result.artifact}  来源: ${result.origin}  ${result.decompiled ? "(Vineflower 反编译)" : "(原始 sources)"}`,
-        result.alternatives.length
-          ? `// 另有 ${result.alternatives.length} 个同名类来源，必要时可换 jar 查看`
+        ...meta,
+        truncated
+          ? `// [已截断：显示约前 ${shownLines}/${total} 行（到 ${cap} 字符）；用 startLine=${shownLines} 继续读取后续区间，或调大 maxChars]`
           : null,
-        truncated ? `// [已截断到 ${cap} 字符，可用 maxChars 调大]` : null,
       ]
         .filter(Boolean)
         .join("\n");
